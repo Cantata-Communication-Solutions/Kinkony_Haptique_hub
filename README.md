@@ -288,7 +288,9 @@ script:
 - Check that the Hub is in learning mode (indicated by LED status)
 
 ### Token Issues
-- Re-obtain the token from the Haptique Config App
+- Re-obtain the token from the Haptique Config App -
+[![Download on the App Store](https://img.shields.io/badge/Download_on_the-App_Store-black?logo=apple&logoColor=white)](https://apps.apple.com/fr/app/haptique-config/id6639613322?l=en-GB)
+[![Get it on Google Play](https://img.shields.io/badge/Get_it_on-Google_Play-green?logo=google-play&logoColor=white)](https://play.google.com/store/apps/details?id=com.cantata.mobile&hl=en_IN)
 - Remove and re-add the integration with the new token
 
 ## 📝 Support
