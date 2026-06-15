@@ -4,11 +4,11 @@ import logging
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER, MODEL
+from .const import DOMAIN
+from .device import build_device_info, get_firmware_version
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,17 +40,11 @@ class HaptiqueBaseSensor(CoordinatorEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._entry = entry
-        
-        # Get version from coordinator data
-        status = coordinator.data.get("status", {})
-        version = status.get("fw_ver") or status.get("version", "Unknown")
-        
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.entry_id)},
-            name=entry.title,
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            sw_version=version,
+
+        self._attr_device_info = build_device_info(
+            entry.entry_id,
+            entry.title,
+            coordinator.data.get("status", {}),
         )
 
 
@@ -180,9 +174,7 @@ class HaptiqueVersionSensor(HaptiqueBaseSensor):
     @property
     def native_value(self):
         """Return the state of the sensor."""
-        status = self.coordinator.data.get("status", {})
-        # Try fw_ver first (actual API field), fall back to version
-        return status.get("fw_ver") or status.get("version", "Unknown")
+        return get_firmware_version(self.coordinator.data.get("status", {}))
 
 
 class HaptiqueHostnameSensor(HaptiqueBaseSensor):

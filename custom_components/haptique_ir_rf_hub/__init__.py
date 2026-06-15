@@ -14,9 +14,11 @@ from homeassistant.const import CONF_HOST, CONF_TOKEN, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN
+from .const import DOMAIN, MANUFACTURER, MODEL
+from .device import get_firmware_version
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -110,6 +112,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "api": api,
         "coordinator": coordinator,
     }
+
+    status = coordinator.data.get("status", {})
+    device_registry = dr.async_get(hass)
+    device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        manufacturer=MANUFACTURER,
+        model=MODEL,
+        name=entry.title,
+        sw_version=get_firmware_version(status),
+    )
 
     await async_setup_services(hass)
     await async_register_static_files(hass)

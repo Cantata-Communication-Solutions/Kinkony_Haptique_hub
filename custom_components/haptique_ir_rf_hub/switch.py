@@ -4,11 +4,11 @@ import logging
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER, MODEL
+from .const import DOMAIN
+from .device import build_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,13 +40,11 @@ class HaptiqueAPSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_name = "Access Point"
         self._attr_unique_id = f"{entry.entry_id}_ap_switch"
         self._attr_icon = "mdi:access-point"
-        
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.entry_id)},
-            name=entry.title,
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            sw_version=coordinator.data.get("status", {}).get("version", "Unknown"),
+
+        self._attr_device_info = build_device_info(
+            entry.entry_id,
+            entry.title,
+            coordinator.data.get("status", {}),
         )
 
     @property

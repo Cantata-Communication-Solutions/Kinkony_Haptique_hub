@@ -11,7 +11,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import DOMAIN
+from .const import DEFAULT_NAME, DOMAIN
+from .device import get_firmware_version
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,8 +48,8 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         
         # Return info that you want to store in the config entry
         return {
-            "title": device_info.get("hostname", "Haptique IR/RF hub"),
-            "version": device_info.get("version", "Unknown"),
+            "title": device_info.get("hostname", DEFAULT_NAME),
+            "version": get_firmware_version(device_info),
         }
     except aiohttp.ClientError as err:
         raise Exception(f"Cannot connect to device: {err}")

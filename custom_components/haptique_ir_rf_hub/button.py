@@ -4,11 +4,11 @@ import logging
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER, MODEL
+from .const import DOMAIN
+from .device import build_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,13 +52,11 @@ class HaptiqueRFButton(CoordinatorEntity, ButtonEntity):
         self._command_name = command_name
         self._attr_name = f"RF {command_name}"
         self._attr_unique_id = f"{entry.entry_id}_rf_{command_name}"
-        
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.entry_id)},
-            name=entry.title,
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            sw_version=coordinator.data.get("status", {}).get("version", "Unknown"),
+
+        self._attr_device_info = build_device_info(
+            entry.entry_id,
+            entry.title,
+            coordinator.data.get("status", {}),
         )
 
     async def async_press(self) -> None:
@@ -80,13 +78,11 @@ class HaptiqueIRButton(CoordinatorEntity, ButtonEntity):
         self._command_name = command_name
         self._attr_name = f"IR {command_name}"
         self._attr_unique_id = f"{entry.entry_id}_ir_{command_name}"
-        
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.entry_id)},
-            name=entry.title,
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            sw_version=coordinator.data.get("status", {}).get("version", "Unknown"),
+
+        self._attr_device_info = build_device_info(
+            entry.entry_id,
+            entry.title,
+            coordinator.data.get("status", {}),
         )
 
     async def async_press(self) -> None:
