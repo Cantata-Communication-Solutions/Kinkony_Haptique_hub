@@ -1,16 +1,18 @@
 """Haptique IR/RF hub integration for Home Assistant."""
-import logging
 import asyncio
-import os
+import logging
 import shutil
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 import aiohttp
 import async_timeout
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_TOKEN, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -19,54 +21,66 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.BUTTON, Platform.SENSOR, Platform.SWITCH]
+STATIC_FILES_REGISTERED = "_static_files_registered"
+SERVICES_REGISTERED = "_services_registered"
 
 
-async def async_register_static_files(hass: HomeAssistant):
-    """
-    Copy files from:
-        custom_components/haptique_ir_rf_hub/www/
-    Into:
-        /config/www/community/haptique_ir_rf_hub/
-    And register static path:
-        http://<ha>/haptique_ir_rf_hub/<file>
-    """
+def _copy_static_files(integration_path: str, destination_path: str) -> Path | None:
+    """Copy bundled frontend assets into Home Assistant's www directory."""
+    src_www = Path(integration_path) / "www"
+    if not src_www.is_dir():
+        return None
 
-    # Correct integration path
-    integration_path = hass.config.path("custom_components", DOMAIN)
+    dest = Path(destination_path)
+    dest.mkdir(parents=True, exist_ok=True)
 
-    # Correct source www directory INSIDE integration
-    src_www = os.path.join(integration_path, "www")
+    for src_file in src_www.iterdir():
+        if src_file.is_file():
+            shutil.copy2(src_file, dest / src_file.name)
 
-    if not os.path.isdir(src_www):
-        _LOGGER.error("No www folder found inside integration! (%s)", src_www)
+    return dest
+
+
+async def async_register_static_files(hass: HomeAssistant) -> None:
+    """Copy and register the integration's static assets once per HA instance."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if domain_data.get(STATIC_FILES_REGISTERED):
         return
 
-    # Destination inside HA www folder (HACS standard)
-    dest = hass.config.path(f"www/community/{DOMAIN}")
-    os.makedirs(dest, exist_ok=True)
-
-    # Copy each file
-    for filename in os.listdir(src_www):
-        src_file = os.path.join(src_www, filename)
-        dest_file = os.path.join(dest, filename)
-
-        if os.path.isfile(src_file):
-            shutil.copy(src_file, dest_file)
-            _LOGGER.info("Copied %s → %s", src_file, dest_file)
-
-    # Register static URL path
-    from homeassistant.components.http import StaticPathConfig
-
-    await hass.http.async_register_static_paths([
-        StaticPathConfig(
-            f"/{DOMAIN}",
-            dest,
-            False   # cache_headers
+    try:
+        dest = await hass.async_add_executor_job(
+            _copy_static_files,
+            hass.config.path("custom_components", DOMAIN),
+            hass.config.path("www", "community", DOMAIN),
         )
-    ])
+    except OSError as err:
+        _LOGGER.warning("Unable to copy static files for %s: %s", DOMAIN, err)
+        return
 
+    if dest is None:
+        _LOGGER.debug("No static files found for %s", DOMAIN)
+        return
 
+    try:
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(f"/{DOMAIN}", str(dest), False)]
+        )
+    except Exception as err:  # pragma: no cover - Home Assistant handles specifics
+        _LOGGER.warning("Unable to register static files for %s: %s", DOMAIN, err)
+        return
+
+    domain_data[STATIC_FILES_REGISTERED] = True
     _LOGGER.info("Static files served at: /%s/", DOMAIN)
+
+
+def _get_default_api(hass: HomeAssistant):
+    """Return the first configured API instance for service handlers."""
+    domain_data = hass.data.get(DOMAIN, {})
+    for value in domain_data.values():
+        if isinstance(value, dict) and "api" in value:
+            return value["api"]
+
+    raise HomeAssistantError("No configured Haptique IR/RF hub entry is available")
 
 
 
@@ -91,21 +105,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = HaptiqueDataUpdateCoordinator(hass, api)
     await coordinator.async_config_entry_first_refresh()
     
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = {
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    domain_data[entry.entry_id] = {
         "api": api,
         "coordinator": coordinator,
     }
-    
-   
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    
-  
-    await async_setup_services(hass, api)
 
-
-
+    await async_setup_services(hass)
     await async_register_static_files(hass)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 
@@ -122,57 +130,67 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 
-async def async_setup_services(hass: HomeAssistant, api) -> None:
+async def async_setup_services(hass: HomeAssistant) -> None:
     """Set up services for Haptique IR/RF hub."""
-    
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if domain_data.get(SERVICES_REGISTERED):
+        return
+
     async def send_rf_code(call):
         """Send RF code service."""
+        api = _get_default_api(hass)
         code = call.data.get("code")
         bits = call.data.get("bits", 24)
         protocol = call.data.get("protocol", 1)
         repeat = call.data.get("repeat", 8)
-        
+
         await api.send_rf_code(code, bits, protocol, repeat)
-    
+
     async def send_rf_saved(call):
         """Send saved RF command service."""
+        api = _get_default_api(hass)
         name = call.data.get("name")
         await api.send_rf_saved(name)
-    
+
     async def send_ir_code(call):
         """Send IR code service."""
+        api = _get_default_api(hass)
         freq = call.data.get("frequency", 38000)
         duty = call.data.get("duty", 33)
         raw_data = call.data.get("raw_data", [])
-        
+
         await api.send_ir_code(freq, duty, raw_data)
-    
+
     async def send_ir_saved(call):
         """Send saved IR command service."""
+        api = _get_default_api(hass)
         name = call.data.get("name")
         await api.send_ir_saved(name)
-    
+
     async def save_rf_last(call):
         """Save last received RF command."""
+        api = _get_default_api(hass)
         name = call.data.get("name")
         await api.save_rf_command(name)
-    
+
     async def save_ir_last(call):
+        api = _get_default_api(hass)
         name = call.data.get("name")
         frame = call.data.get("frame", "B")  # default frame B
         await api.save_ir_command(name, frame)
 
-    
     async def delete_rf_command(call):
         """Delete saved RF command."""
+        api = _get_default_api(hass)
         name = call.data.get("name")
         await api.delete_rf_command(name)
-    
+
     async def delete_ir_command(call):
         """Delete saved IR command."""
+        api = _get_default_api(hass)
         name = call.data.get("name")
         await api.delete_ir_command(name)
-    
+
     # Register all services
     hass.services.async_register(DOMAIN, "send_rf_code", send_rf_code)
     hass.services.async_register(DOMAIN, "send_rf_saved", send_rf_saved)
@@ -182,6 +200,7 @@ async def async_setup_services(hass: HomeAssistant, api) -> None:
     hass.services.async_register(DOMAIN, "save_ir_last", save_ir_last)
     hass.services.async_register(DOMAIN, "delete_rf_command", delete_rf_command)
     hass.services.async_register(DOMAIN, "delete_ir_command", delete_ir_command)
+    domain_data[SERVICES_REGISTERED] = True
 
 
 
